@@ -140,6 +140,7 @@ def main(argv=None) -> int:
     p.add_argument("--limit", type=int, default=0, help="massimo repo da analizzare in questa esecuzione")
     p.add_argument("--rescan-days", type=int, default=7, help="rianalizza solo se più vecchio di N giorni o con nuovi push")
     p.add_argument("--max-minutes", type=int, default=0, help="ferma l'analisi dopo N minuti (0 = nessun limite)")
+    p.add_argument("--force", action="store_true", help="rianalizza tutto, ignorando la cache")
     p.add_argument("--no-llm", action="store_true", help="non usare l'AI anche se ANTHROPIC_API_KEY è presente")
     p.add_argument("--db", default=str(ROOT / "data" / "setaccio.db"))
     p.add_argument("--out", default=str(ROOT / "docs" / "data" / "repos.json"))
@@ -165,7 +166,7 @@ def main(argv=None) -> int:
             print("⏱  tempo massimo raggiunto, mi fermo qui (riprendo alla prossima esecuzione)")
             break
         row = db.execute("SELECT pushed_at, scanned_at FROM repos WHERE full_name=?", (meta["full_name"],)).fetchone()
-        if row and row[0] == meta.get("pushed_at") and datetime.fromisoformat(row[1]) > cutoff:
+        if row and not args.force and row[0] == meta.get("pushed_at") and datetime.fromisoformat(row[1]) > cutoff:
             skipped += 1
             continue
         try:

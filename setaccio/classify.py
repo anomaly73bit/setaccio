@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 # tipo -> parole chiave (cercate in topic, nome, descrizione, README)
 TYPES: dict[str, list[str]] = {
-    "Lista curata / risorsa": ["awesome", "curated list", "awesome-list", "list of", "collection of", "resources",
+    "Lista curata / risorsa": ["awesome", "curated list", "collective list", "a list", "list", "directory of", "free apis", "awesome-list", "list of", "collection of", "resources",
                                "cheatsheet", "cheat sheet", "interview", "roadmap", "learning path"],
     "Materiale didattico": ["tutorial", "course", "book", "learn", "education", "exercises", "examples",
                             "lessons", "beginner", "workshop", "guide", "leetcode", "algorithms"],
@@ -28,7 +28,7 @@ TYPES: dict[str, list[str]] = {
                            "orm", "query engine", "olap", "nosql"],
     "Infrastruttura / DevOps": ["kubernetes", "k8s", "devops", "docker", "terraform", "infrastructure", "monitoring",
                                 "observability", "ci/cd", "deployment", "helm", "ansible", "cloud-native", "container"],
-    "Progetto AI / LLM": ["llm", "gpt", "chatgpt", "ai agent", "agents", "rag", "large language model", "openai",
+    "Progetto AI / LLM": ["llm", "gpt", "chatgpt", "ai agent", "rag", "ai agents", "ai agent framework", "large language model", "openai",
                           "claude", "stable diffusion", "transformer", "generative ai", "mcp", "chatbot", "ollama"],
     "Machine learning / data science": ["machine learning", "deep learning", "neural network", "data science",
                                         "pytorch", "tensorflow", "dataset", "computer vision", "nlp", "jupyter"],
@@ -164,11 +164,11 @@ def classify(meta: dict, readme: str, techs: dict[str, list[str]]) -> tuple[str,
         for kw in kws:
             pat = r"\b" + re.escape(kw) + r"\b"
             if re.search(pat, topics):
-                s += 3
+                s += 2
             if re.search(pat, name):
                 s += 2.5
             if re.search(pat, desc):
-                s += 2
+                s += 4
             if re.search(pat, lead):
                 s += 2
             elif re.search(pat, head):
@@ -236,7 +236,8 @@ def describe(meta: dict, langs: dict, techs: dict, ptype: str, readme: str) -> d
     key_tech = []
     for cat in ("Frontend", "Backend", "Mobile", "Desktop", "AI/LLM", "Data/ML", "Database", "API", "CLI", "Gaming"):
         key_tech += techs.get(cat, [])
-    parts = [f"**{meta['name']}** è {ARTICLE.get(ptype, ARTICLE['Altro'])}."]
+    parts = [f"**{meta['name']}** è {ARTICLE.get(ptype, ARTICLE['Altro'])}"
+             + (f" pensato per {AUDIENCE.get(ptype, 'sviluppatori')}." if ptype != "Altro" else ".")]
     if main_langs:
         parts.append(f"Linguaggi principali: {_join(main_langs)}.")
     if key_tech:
