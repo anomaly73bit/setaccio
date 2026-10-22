@@ -44,6 +44,7 @@ Segreti facoltativi (*Settings → Secrets and variables → Actions*):
 | Segreto | A cosa serve |
 |---|---|
 | `SCAN_TOKEN` | token personale: 5.000 richieste/ora invece delle 1.000 del token di Actions |
+| `DATABASE_URL` | stringa di connessione PostgreSQL (es. Neon): l'archivio passa da SQLite a Postgres. Al primo avvio i dati del file SQLite vengono importati da soli |
 | `ANTHROPIC_API_KEY` | descrizioni scritte da Claude (punti di forza, casi d'uso) invece che euristiche |
 
 Modello AI configurabile con la variabile `SETACCIO_MODEL` (default `claude-haiku-5-5`).
@@ -53,3 +54,25 @@ Modello AI configurabile con la variabile `SETACCIO_MODEL` (default `claude-haik
 - La Search API restituisce al massimo 1.000 risultati per query: per coprire di più si moltiplicano le fette (linguaggio × fasce di stelle × date).
 - Ogni repo costa circa 5–8 chiamate API: con un token personale si analizzano circa 700–1.000 repo l'ora.
 - Il rilevamento legge solo i file nella root: nei monorepo alcune tecnologie possono sfuggire.
+
+## Database PostgreSQL
+
+Con `DATABASE_URL` impostata lo scanner scrive su Postgres. Tabelle principali:
+
+- `repos`: una riga per progetto (tipo, linguaggio, stelle, stato, date) più il record completo in `data` (jsonb) e una colonna `search` (tsvector) per la ricerca full-text
+- `repo_technologies` (categoria, nome) e `repo_topics`: per filtri e statistiche
+- `scans`: storico delle esecuzioni
+- viste `v_types` e `v_technologies`
+
+Esempi:
+
+```sql
+-- progetti che usano SQL Server
+SELECT r.full_name, r.stars FROM repos r JOIN repo_technologies t USING (full_name)
+WHERE t.name = 'SQL Server' ORDER BY r.stars DESC;
+
+-- ricerca full-text
+SELECT full_name, type FROM repos WHERE search @@ plainto_tsquery('simple', 'vector database');
+```
+
+La pagina web continua a leggere `docs/data/repos.json`, esportato dal database a ogni scansione.

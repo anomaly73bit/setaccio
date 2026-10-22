@@ -9,7 +9,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sqlite3
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -18,6 +17,7 @@ from pathlib import Path
 from .classify import classify, describe, describe_llm
 from .detect import MANIFESTS, MANIFEST_SUFFIXES, map_technologies, parse_deps
 from .github import GitHub
+from .storage import _dt, open_store
 
 DEFAULT_LANGUAGES = [
     "Python", "JavaScript", "TypeScript", "Go", "Rust", "Java", "Kotlin", "C#", "C++", "C",
@@ -25,17 +25,6 @@ DEFAULT_LANGUAGES = [
 ]
 
 ROOT = Path(__file__).resolve().parent.parent
-
-
-def open_db(path: Path) -> sqlite3.Connection:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(path)
-    db.execute("""CREATE TABLE IF NOT EXISTS repos (
-        full_name TEXT PRIMARY KEY,
-        pushed_at TEXT,
-        scanned_at TEXT,
-        data TEXT NOT NULL)""")
-    return db
 
 
 def discover(gh: GitHub, args) -> list[dict]:
@@ -119,8 +108,8 @@ def analyze(gh: GitHub, meta: dict, use_llm: bool) -> dict:
     }
 
 
-def export(db: sqlite3.Connection, out: Path) -> int:
-    rows = [json.loads(r[0]) for r in db.execute("SELECT data FROM repos")]
+def export(store, out: Path) -> int:
+    rows = store.all()
     rows.sort(key=lambda r: -r["stars"])
     out.parent.mkdir(parents=True, exist_ok=True)
     payload = {"generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -142,12 +131,14 @@ def main(argv=None) -> int:
     p.add_argument("--max-minutes", type=int, default=0, help="ferma l'analisi dopo N minuti (0 = nessun limite)")
     p.add_argument("--force", action="store_true", help="rianalizza tutto, ignorando la cache")
     p.add_argument("--no-llm", action="store_true", help="non usare l'AI anche se ANTHROPIC_API_KEY è presente")
-    p.add_argument("--db", default=str(ROOT / "data" / "setaccio.db"))
+    p.add_argument("--db", default=str(ROOT / "data" / "setaccio.db"), help="file SQLite (usato se DATABASE_URL non c'è)")
     p.add_argument("--out", default=str(ROOT / "docs" / "data" / "repos.json"))
     args = p.parse_args(argv)
 
     gh = GitHub()
-    db = open_db(Path(args.db))
+    store = open_store(os.environ.get("DATABASE_URL"), Path(args.db))
+    print(f"Archivio: {store.kind}")
+    started = datetime.now(timezone.utc)
     use_llm = bool(os.environ.get("ANTHROPIC_API_KEY")) and not args.no_llm
     print(f"Descrizioni: {'AI (' + os.environ.get('SETACCIO_MODEL', 'claude-haiku-5-5') + ')' if use_llm else 'euristiche'}")
 
@@ -165,8 +156,8 @@ def main(argv=None) -> int:
         if args.max_minutes and time.time() - t0 > args.max_minutes * 60:
             print("⏱  tempo massimo raggiunto, mi fermo qui (riprendo alla prossima esecuzione)")
             break
-        row = db.execute("SELECT pushed_at, scanned_at FROM repos WHERE full_name=?", (meta["full_name"],)).fetchone()
-        if row and not args.force and row[0] == meta.get("pushed_at") and datetime.fromisoformat(row[1]) > cutoff:
+        row = store.state(meta["full_name"])
+        if row and not args.force and row[0] == _dt(meta.get("pushed_at")) and row[1] > cutoff:
             skipped += 1
             continue
         try:
@@ -175,13 +166,13 @@ def main(argv=None) -> int:
             failed += 1
             print(f"  ✗ {meta['full_name']}: {e}")
             continue
-        db.execute("INSERT OR REPLACE INTO repos VALUES (?,?,?,?)",
-                   (rec["full_name"], rec["pushed_at"], rec["scanned_at"], json.dumps(rec, ensure_ascii=False)))
-        db.commit()
+        store.save(rec)
         done += 1
         print(f"  ✓ {rec['full_name']:<45} {rec['type']:<32} ★{rec['stars']}")
 
-    total = export(db, Path(args.out))
+    total = export(store, Path(args.out))
+    store.log_scan(started_at=started, analyzed=done, skipped=skipped, failed=failed, api_calls=gh.calls)
+    store.close()
     print(f"\nAnalizzati {done}, saltati {skipped} (già aggiornati), errori {failed}. "
           f"Totale in archivio: {total}. Chiamate API: {gh.calls}. Tempo: {time.time() - t0:.0f}s")
     print(f"Dati esportati in {args.out}")
