@@ -168,11 +168,29 @@ class PostgresStore:
         self.conn.close()
 
 
+def clean_url(raw: str) -> str:
+    """Accetta anche lo snippet copiato da Neon: "psql 'postgresql://...'" o con virgolette/spazi."""
+    import re
+    m = re.search(r"postgres(?:ql)?://[^\s'\"]+", raw or "")
+    return m.group(0) if m else (raw or "").strip()
+
+
+def _redact(text: str) -> str:
+    import re
+    return re.sub(r"(postgres(?:ql)?://[^:/@\s]+:)[^@\s]+@", r"\1***@", str(text))
+
+
 def open_store(database_url: str | None, sqlite_path: Path):
     """Apre l'archivio giusto. Al primo uso di Postgres importa i dati già presenti nel file SQLite."""
-    if not database_url:
+    if not database_url or not database_url.strip():
         return SQLiteStore(sqlite_path)
-    store = PostgresStore(database_url)
+    url = clean_url(database_url)
+    if not url.startswith(("postgres://", "postgresql://")):
+        raise SystemExit("DATABASE_URL non valida: deve iniziare con postgresql:// (copia la connection string da Neon)")
+    try:
+        store = PostgresStore(url)
+    except Exception as e:  # noqa: BLE001
+        raise SystemExit(f"Connessione a PostgreSQL fallita: {_redact(e)}")
     if store.is_empty() and sqlite_path.exists():
         old = SQLiteStore(sqlite_path)
         rows = old.all()
